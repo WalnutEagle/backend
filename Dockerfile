@@ -1,15 +1,12 @@
 FROM node:18-alpine
 WORKDIR /app
 
-# Copy package files and install deps
+# install only prod deps
 COPY package.json ./
 RUN npm ci --only=production
 
-# Copy server code
+# copy code
 COPY server.js ./
 
-# Expose your WS port
 EXPOSE 8081
-
-# Run the server
 CMD ["node", "server.js"]

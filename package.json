@@ -1,0 +1,11 @@
+{
+  "name": "car-ws-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.12.0"
+  }
+}
