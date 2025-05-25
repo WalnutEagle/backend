@@ -33,7 +33,8 @@ class CarData(BaseModel):
     sensor_data: SensorData
     inference_mode: str # "local" or "cloud"
     vehicle_controls: VehicleControls
-    image_base64: Optional[str] = None  # <--- THIS IS THE ADDED FIELD FOR THE IMAGE
+    image1_base64: Optional[str] = None  # <--- RENAMED and for first image
+    image2_base64: Optional[str] = None # <--- THIS IS THE ADDED FIELD FOR THE IMAGE
     timestamp_car_sent_utc: str = Field(default_factory=lambda: datetime.datetime.utcnow().isoformat() + "Z")
     # This will be added by the server upon receiving the message
     timestamp_server_received_utc: Optional[str] = None
