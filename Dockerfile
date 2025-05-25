@@ -3,7 +3,7 @@ WORKDIR /app
 
 # install only prod deps
 COPY package.json ./
-RUN npm ci --only=production
+RUN npm install --production
 
 # copy code
 COPY server.js ./
