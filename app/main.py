@@ -86,33 +86,32 @@ manager = ConnectionManager()
 # --- WebSocket Endpoint for Car Data ---
 @app.websocket("/ws/car_data")
 async def websocket_car_data_endpoint(websocket: WebSocket):
-    # For now, assume one car. If multiple cars, you'd need a car_id perhaps from path or first message.
-    # Example: @app.websocket("/ws/car_data/{car_id}")
-    # async def websocket_car_data_endpoint(websocket: WebSocket, car_id: str):
-
     await manager.connect(websocket)
     global latest_car_data_store
     try:
         while True:
             data_json = await websocket.receive_json() # Expecting JSON from car
             try:
+                # ADD DETAILED LOGGING HERE:
+                logging.info(f"RAW JSON received from client: {data_json}") # Log the raw dict
+
                 car_data_received = CarData(**data_json)
+
+                # Log the Pydantic model AFTER parsing. exclude_none=False shows fields that are None.
+                logging.info(f"Pydantic model 'car_data_received' after parsing: {car_data_received.model_dump(exclude_none=False)}")
+
                 car_data_received.timestamp_server_received_utc = datetime.datetime.utcnow().isoformat() + "Z"
+                latest_car_data_store = car_data_received
                 
-                latest_car_data_store = car_data_received # Update the global store
-                
-                # You can uncomment this print for debugging if needed
-                # print(f"Received from car: {car_data_received.model_dump_json(indent=2)}")
                 logging.info(f"Data received and stored from car {websocket.client}.")
 
-                # Optional: Send an acknowledgment back to the car
                 await websocket.send_json({
                     "status": "received",
                     "message_processed_at": car_data_received.timestamp_server_received_utc
                 })
 
-            except Exception as e: # Pydantic validation error or other processing error
-                logging.error(f"Error processing car data: {e} - Data: {data_json}")
+            except Exception as e:
+                logging.error(f"Error processing car data: {e} - Raw Data: {data_json}") # Also log raw data on error
                 await websocket.send_json({"status": "error", "message": str(e)})
 
     except WebSocketDisconnect:
