@@ -1,0 +1,3 @@
+#Sometimes when building too much it leads to rate limit on docker side 
+#so use this FROM registry.redhat.io/ubi8/python-39:latest in the 
+#Dockerfile so that it might work and pull image from some different place
