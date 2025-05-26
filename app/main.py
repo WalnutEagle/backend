@@ -178,6 +178,16 @@ async def read_root():
         "latest_data_http_endpoint": "/api/latest_car_data"
     }
 
+
+@app.get("/debug/time_check") # Changed endpoint name slightly for clarity
+async def get_server_time_check():
+    return {
+        "description": "Current time as seen by the backend server application",
+        "server_utc_timestamp_iso": datetime.datetime.utcnow().isoformat() + "Z",
+        "server_datetime_object_utc": str(datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)),
+        "server_datetime_object_local": str(datetime.datetime.now().astimezone()), # Includes local TZ info
+    }
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(name)s - %(module)s.%(funcName)s:%(lineno)d - %(message)s',
