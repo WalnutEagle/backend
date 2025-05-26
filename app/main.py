@@ -7,7 +7,7 @@ from dateutil import parser # For robust ISO 8601 parsing
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, Validator
+from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Dict, Any
 import uvicorn # For local running if needed
 
