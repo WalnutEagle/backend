@@ -35,15 +35,30 @@ class CarData(BaseModel):
     inference_mode: str
     vehicle_controls: VehicleControls
     image1_base64: Optional[str] = None
-    unique_id_image1: Optional[str] = None # e.g., "frame_0.jpg_timestampms"
+    unique_id_image1: Optional[str] = None
     image2_base64: Optional[str] = None
-    unique_id_image2: Optional[str] = None # e.g., "frame_1.jpg_timestampms"
+    unique_id_image2: Optional[str] = None
     energy_used_wh: Optional[float] = None
-    timestamp_car_sent_utc: str # Car MUST send this accurately (ISO 8601 with 'Z')
-    
+    timestamp_car_sent_utc: str
     # Fields to be added by the server:
     timestamp_server_received_utc: Optional[str] = None
     data_transit_time_to_server_ms: Optional[float] = None 
+    # ← add this validator
+    @validator("predicted_waypoints", pre=True)
+    def _coerce_waypoints(cls, v):
+        if v is None:
+            return None
+        converted = []
+        for wp in v:
+            # if it's already a dict, leave it
+            if isinstance(wp, dict):
+                converted.append(wp)
+            # if it's a list/tuple of two floats, turn into {"lat":…, "lon":…}
+            elif isinstance(wp, (list, tuple)) and len(wp) == 2:
+                converted.append({"lat": wp[0], "lon": wp[1]})
+            else:
+                raise ValueError(f"Invalid waypoint entry: {wp!r}")
+        return converted
 # --- End Pydantic Models ---
 
 app = FastAPI(
