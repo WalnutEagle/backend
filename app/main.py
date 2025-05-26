@@ -176,7 +176,7 @@ async def websocket_car_data_endpoint(websocket: WebSocket):
 #     except Exception as e: logging.error(f"UI WS error: {e} for {websocket.client.host}:{websocket.client.port}")
 #     finally: ui_connection_manager.disconnect(websocket)
 
-@app.websocket("/ws/ui_updates")
+@app.websocket("/api/ui_updates")
 async def websocket_ui_endpoint(websocket: WebSocket):
     await ui_connection_manager.connect(websocket)
     try:
@@ -225,7 +225,7 @@ async def read_root():
     return {
         "message": "Car Data Backend is running.",
         "car_websocket_endpoint": "/ws/car_data",
-        "ui_websocket_endpoint": "/ws/ui_updates",
+        "ui_websocket_endpoint": "/api/ui_updates",
         "latest_data_http_endpoint": "/api/latest_car_data",
         "debug_timedatectl": "/debug/time_check"
     }
