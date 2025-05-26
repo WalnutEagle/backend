@@ -168,17 +168,6 @@ async def get_latest_car_data():
     if latest_car_data_store: return latest_car_data_store
     return None
 
-@app.get("/")
-async def read_root():
-    # ... (This endpoint remains the same, update descriptions if needed) ...
-    return {
-        "message": "Car Data Backend is running.",
-        "car_websocket_endpoint": "/ws/car_data",
-        "ui_websocket_endpoint": "/ws/ui_updates",
-        "latest_data_http_endpoint": "/api/latest_car_data"
-    }
-
-
 @app.get("/debug/time_check") # Changed endpoint name slightly for clarity
 async def get_server_time_check():
     return {
@@ -187,6 +176,20 @@ async def get_server_time_check():
         "server_datetime_object_utc": str(datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)),
         "server_datetime_object_local": str(datetime.datetime.now().astimezone()), # Includes local TZ info
     }
+
+@app.get("/")
+async def read_root():
+    # ... (This endpoint remains the same, update descriptions if needed) ...
+    return {
+        "message": "Car Data Backend is running.",
+        "car_websocket_endpoint": "/ws/car_data",
+        "ui_websocket_endpoint": "/ws/ui_updates",
+        "latest_data_http_endpoint": "/api/latest_car_data",
+        "debug_timedatectl": "/debug/time_check"
+    }
+
+
+
 
 logging.basicConfig(
     level=logging.INFO,
