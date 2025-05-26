@@ -163,18 +163,45 @@ async def websocket_car_data_endpoint(websocket: WebSocket):
     finally:
         car_connection_manager.disconnect(websocket)
 
+# @app.websocket("/ws/ui_updates")
+# async def websocket_ui_endpoint(websocket: WebSocket):
+#     # ... (This endpoint remains the same as in the previous full backend example) ...
+#     await ui_connection_manager.connect(websocket)
+#     try:
+#         if latest_car_data_store:
+#             try: await websocket.send_json(latest_car_data_store.model_dump())
+#             except Exception as e: logging.error(f"Error sending initial data to UI {websocket.client.host}:{websocket.client.port}: {e}")
+#         while True: await websocket.receive_text() # Keep alive, detect close
+#     except WebSocketDisconnect: logging.info(f"UI WS disconnected: {websocket.client.host}:{websocket.client.port}")
+#     except Exception as e: logging.error(f"UI WS error: {e} for {websocket.client.host}:{websocket.client.port}")
+#     finally: ui_connection_manager.disconnect(websocket)
+
 @app.websocket("/ws/ui_updates")
 async def websocket_ui_endpoint(websocket: WebSocket):
-    # ... (This endpoint remains the same as in the previous full backend example) ...
     await ui_connection_manager.connect(websocket)
     try:
+        # Send the current latest data immediately upon connection if available
         if latest_car_data_store:
-            try: await websocket.send_json(latest_car_data_store.model_dump())
-            except Exception as e: logging.error(f"Error sending initial data to UI {websocket.client.host}:{websocket.client.port}: {e}")
-        while True: await websocket.receive_text() # Keep alive, detect close
-    except WebSocketDisconnect: logging.info(f"UI WS disconnected: {websocket.client.host}:{websocket.client.port}")
-    except Exception as e: logging.error(f"UI WS error: {e} for {websocket.client.host}:{websocket.client.port}")
-    finally: ui_connection_manager.disconnect(websocket)
+            try:
+                await websocket.send_json(latest_car_data_store.model_dump())
+            except Exception as e:
+                logging.error(f"Error sending initial data to UI client {websocket.client.host}:{websocket.client.port}: {e}")
+        
+        # Keep the connection alive and detect disconnections
+        while True:
+            # This loop waits for the client to close the connection or send data (which we ignore here)
+            # FastAPI/Uvicorn handles WebSocket ping/pongs by default to keep connections alive.
+            # If client sends data, it will be received here. We are not expecting any for now.
+            await websocket.receive_text() # This will raise WebSocketDisconnect if client closes
+
+    except WebSocketDisconnect:
+        logging.info(f"UI WebSocket disconnected by client: {websocket.client.host}:{websocket.client.port}")
+    except Exception as e:
+        logging.error(f"Unexpected UI WebSocket error for {websocket.client.host}:{websocket.client.port}: {e}")
+        # No need to explicitly close here if an exception occurs, FastAPI handles it,
+        # but ensure disconnect is called in finally.
+    finally:
+        ui_connection_manager.disconnect(websocket)
 
 
 @app.get("/api/latest_car_data", response_model=Optional[CarData])
