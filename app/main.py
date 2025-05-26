@@ -55,7 +55,7 @@ class CarData(BaseModel):
                 converted.append(wp)
             # if it's a list/tuple of two floats, turn into {"lat":…, "lon":…}
             elif isinstance(wp, (list, tuple)) and len(wp) == 2:
-                converted.append({"lat": wp[0], "lon": wp[1]})
+                converted.append({"X": wp[0], "Y": wp[1]})
             else:
                 raise ValueError(f"Invalid waypoint entry: {wp!r}")
         return converted
