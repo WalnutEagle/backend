@@ -1,13 +1,15 @@
 # backend/app/main.py
 
+import datetime
+import logging
+# import time # Not strictly needed for this specific metric, but can be useful for other diagnostics
+from dateutil import parser # For robust ISO 8601 parsing
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
-import datetime
-import logging
-import uvicorn
-import json # Not strictly needed if using .model_dump() with send_json
+import uvicorn # For local running if needed
 
 # --- Pydantic Models ---
 class Waypoint(BaseModel):
@@ -28,180 +30,157 @@ class VehicleControls(BaseModel):
     throttle: float
 
 class CarData(BaseModel):
-    server_comm_time_ms: Optional[float] = None
-    server_response_time_ms: Optional[float] = None
     predicted_waypoints: Optional[List[Waypoint]] = None
     sensor_data: SensorData
     inference_mode: str
     vehicle_controls: VehicleControls
-    image1_base64: Optional[str] = None # For main camera image
-    image2_base64: Optional[str] = None # For second/aux camera image
+    image1_base64: Optional[str] = None
+    unique_id_image1: Optional[str] = None # e.g., "frame_0.jpg_timestampms"
+    image2_base64: Optional[str] = None
+    unique_id_image2: Optional[str] = None # e.g., "frame_1.jpg_timestampms"
     energy_used_wh: Optional[float] = None
-    timestamp_car_sent_utc: str = Field(default_factory=lambda: datetime.datetime.utcnow().isoformat() + "Z")
+    timestamp_car_sent_utc: str # Car MUST send this accurately (ISO 8601 with 'Z')
+    
+    # Fields to be added by the server:
     timestamp_server_received_utc: Optional[str] = None
+    data_transit_time_to_server_ms: Optional[float] = None 
 # --- End Pydantic Models ---
 
 app = FastAPI(
     title="Car Data Backend",
-    description="Receives car data, provides it via HTTP GET, and broadcasts live updates via WebSockets to UI clients.",
-    version="1.2.0" # Incremented version for clarity
+    description="Calculates data transit time from car and broadcasts updates.",
+    version="1.3.0" 
 )
 
 # --- CORS Middleware ---
-# In production, restrict origins to your actual frontend URL(s)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # Restrict in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- In-memory Data Store ---
 latest_car_data_store: Optional[CarData] = None
 
-# --- WebSocket Connection Manager ---
 class ConnectionManager:
     def __init__(self, manager_name: str = "default"):
         self.active_connections: List[WebSocket] = []
-        self.manager_name = manager_name # For logging
+        self.manager_name = manager_name
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-        logging.info(f"[{self.manager_name}] WebSocket client connected: {websocket.client.host}:{websocket.client.port}")
+        logging.info(f"[{self.manager_name}] WS client connected: {websocket.client.host}:{websocket.client.port}")
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-        logging.info(f"[{self.manager_name}] WebSocket client disconnected: {websocket.client.host}:{websocket.client.port}")
+        logging.info(f"[{self.manager_name}] WS client disconnected: {websocket.client.host}:{websocket.client.port}")
 
     async def broadcast_json_object(self, data: dict):
-        if not self.active_connections:
-            # logging.debug(f"[{self.manager_name}] No active clients to broadcast to.")
-            return
-        
+        if not self.active_connections: return
         disconnected_clients: List[WebSocket] = []
-        # Iterate over a copy of the list in case of modifications during iteration
         for connection in list(self.active_connections): 
             try:
                 await connection.send_json(data)
             except (WebSocketDisconnect, RuntimeError) as e:
                 disconnected_clients.append(connection)
-                logging.warning(f"[{self.manager_name}] Client {connection.client.host}:{connection.client.port} disconnected or runtime error during broadcast: {type(e).__name__}")
+                logging.warning(f"[{self.manager_name}] Client {connection.client.host}:{connection.client.port} disconnected or error during broadcast: {type(e).__name__}")
             except Exception as e:
-                logging.error(f"[{self.manager_name}] Unexpected error sending to {connection.client.host}:{connection.client.port}: {e}")
-        
+                logging.error(f"[{self.manager_name}] Error sending to {connection.client.host}:{connection.client.port}: {e}")
         for client in disconnected_clients:
-            if client in self.active_connections : # Check again before removing
-                 self.disconnect(client) # Ensure proper cleanup via manager's disconnect method
+            if client in self.active_connections: self.disconnect(client)
 
-# --- Managers for different client types ---
 car_connection_manager = ConnectionManager(manager_name="CarClients")
 ui_connection_manager = ConnectionManager(manager_name="UIClients")
 
-# --- WebSocket Endpoint for Car Data ---
 @app.websocket("/ws/car_data")
 async def websocket_car_data_endpoint(websocket: WebSocket):
     await car_connection_manager.connect(websocket)
     global latest_car_data_store
     try:
         while True:
-            data_json = await websocket.receive_json() # Expecting JSON from car
+            server_receive_time_obj = datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
+            data_json = await websocket.receive_json()
+
             try:
-                car_data_received = CarData(**data_json)
-                car_data_received.timestamp_server_received_utc = datetime.datetime.utcnow().isoformat() + "Z"
-                
-                latest_car_data_store = car_data_received # Update the global store
-                
-                logging.info(f"Data from car {websocket.client.host}:{websocket.client.port} stored.")
+                car_data_received = CarData(**data_json) 
+                car_data_received.timestamp_server_received_utc = server_receive_time_obj.isoformat().replace("+00:00", "Z")
 
-                # Broadcast the new data to all connected UI clients
+                try:
+                    car_sent_time_obj = parser.isoparse(car_data_received.timestamp_car_sent_utc)
+                    if car_sent_time_obj.tzinfo is None or car_sent_time_obj.tzinfo.utcoffset(car_sent_time_obj) is None:
+                        logging.warning(f"Car timestamp '{car_data_received.timestamp_car_sent_utc}' was naive. Assuming UTC.")
+                        car_sent_time_obj = car_sent_time_obj.replace(tzinfo=datetime.timezone.utc)
+                    
+                    latency_delta = server_receive_time_obj - car_sent_time_obj
+                    transit_time_ms = round(latency_delta.total_seconds() * 1000.0, 2)
+                    car_data_received.data_transit_time_to_server_ms = transit_time_ms
+                    
+                    if transit_time_ms < -10: # Allow small negative tolerance
+                        logging.warning(f"Negative transit time ({transit_time_ms} ms). Clock skew suspected.")
+                    elif transit_time_ms > 10000: 
+                         logging.warning(f"High transit time ({transit_time_ms} ms). Possible clock skew/network issue.")
+                except Exception as time_parse_error:
+                    logging.error(f"Error parsing car timestamp or calculating transit: {time_parse_error}. TS was: '{car_data_received.timestamp_car_sent_utc}'")
+                    car_data_received.data_transit_time_to_server_ms = None
+                
+                latest_car_data_store = car_data_received
+                logging.info(f"Data stored. Transit: {car_data_received.data_transit_time_to_server_ms} ms.")
+
                 if latest_car_data_store:
-                    # .model_dump() creates a dict suitable for JSON serialization
                     await ui_connection_manager.broadcast_json_object(latest_car_data_store.model_dump())
-                    logging.debug(f"Broadcasted latest data to {len(ui_connection_manager.active_connections)} UI clients.")
 
-                # Send acknowledgment back to the car
                 await websocket.send_json({
                     "status": "received",
-                    "message_processed_at": car_data_received.timestamp_server_received_utc
+                    "message_processed_at_utc": car_data_received.timestamp_server_received_utc
                 })
-
-            except Exception as e: # Pydantic validation error or other processing error
-                logging.error(f"Error processing car data from {websocket.client.host}:{websocket.client.port}: {e} - Raw Data: {data_json}")
+            except Exception as e:
+                logging.error(f"Error processing car data: {e} - Raw: {data_json}")
                 await websocket.send_json({"status": "error", "message": str(e)})
-
     except WebSocketDisconnect:
-        logging.info(f"Car WebSocket disconnected by client: {websocket.client.host}:{websocket.client.port}")
+        logging.info(f"Car WS disconnected: {websocket.client.host}:{websocket.client.port}")
     except Exception as e:
-        logging.error(f"Unexpected Car WebSocket error for {websocket.client.host}:{websocket.client.port}: {e}")
-        try:
-            await websocket.close(code=1011) # Internal error
-        except RuntimeError: pass # Already closed
+        logging.error(f"Car WS error: {e} for {websocket.client.host}:{websocket.client.port}")
+        try: await websocket.close(code=1011)
+        except RuntimeError: pass
     finally:
         car_connection_manager.disconnect(websocket)
 
-
-# --- WebSocket Endpoint for UI Clients ---
 @app.websocket("/ws/ui_updates")
 async def websocket_ui_endpoint(websocket: WebSocket):
+    # ... (This endpoint remains the same as in the previous full backend example) ...
     await ui_connection_manager.connect(websocket)
     try:
-        # Send the current latest data immediately upon connection if available
         if latest_car_data_store:
-            try:
-                await websocket.send_json(latest_car_data_store.model_dump())
-            except Exception as e:
-                logging.error(f"Error sending initial data to UI client {websocket.client.host}:{websocket.client.port}: {e}")
-        
-        # Keep the connection alive and detect disconnections
-        while True:
-            # This loop waits for the client to close the connection or send data (which we ignore here)
-            # FastAPI/Uvicorn handles WebSocket ping/pongs by default to keep connections alive.
-            # If client sends data, it will be received here. We are not expecting any for now.
-            await websocket.receive_text() # This will raise WebSocketDisconnect if client closes
-
-    except WebSocketDisconnect:
-        logging.info(f"UI WebSocket disconnected by client: {websocket.client.host}:{websocket.client.port}")
-    except Exception as e:
-        logging.error(f"Unexpected UI WebSocket error for {websocket.client.host}:{websocket.client.port}: {e}")
-        # No need to explicitly close here if an exception occurs, FastAPI handles it,
-        # but ensure disconnect is called in finally.
-    finally:
-        ui_connection_manager.disconnect(websocket)
+            try: await websocket.send_json(latest_car_data_store.model_dump())
+            except Exception as e: logging.error(f"Error sending initial data to UI {websocket.client.host}:{websocket.client.port}: {e}")
+        while True: await websocket.receive_text() # Keep alive, detect close
+    except WebSocketDisconnect: logging.info(f"UI WS disconnected: {websocket.client.host}:{websocket.client.port}")
+    except Exception as e: logging.error(f"UI WS error: {e} for {websocket.client.host}:{websocket.client.port}")
+    finally: ui_connection_manager.disconnect(websocket)
 
 
-# --- HTTP GET Endpoint for Frontend to Fetch Data (for SSR or non-WebSocket clients) ---
 @app.get("/api/latest_car_data", response_model=Optional[CarData])
 async def get_latest_car_data():
-    """
-    Provides the most recent data received from the car.
-    Useful for initial data load or clients not using WebSockets.
-    """
-    if latest_car_data_store:
-        return latest_car_data_store
-    return None # Or return a default empty structure if preferred by frontend
+    # ... (This endpoint remains the same) ...
+    if latest_car_data_store: return latest_car_data_store
+    return None
 
 @app.get("/")
 async def read_root():
+    # ... (This endpoint remains the same, update descriptions if needed) ...
     return {
         "message": "Car Data Backend is running.",
-        "documentation": "/docs",
-        "openapi_json": "/openapi.json",
         "car_websocket_endpoint": "/ws/car_data",
         "ui_websocket_endpoint": "/ws/ui_updates",
         "latest_data_http_endpoint": "/api/latest_car_data"
     }
 
-# --- Logging Configuration ---
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(name)s - %(module)s.%(funcName)s:%(lineno)d - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
-    handlers=[logging.StreamHandler()] # Ensures logs go to stdout/stderr for OpenShift
+    handlers=[logging.StreamHandler()]
 )
-# logger = logging.getLogger(__name__) # Example of getting a specific logger if needed
-
-# To run locally: uvicorn backend.app.main:app --reload --port 8000
-# (Assuming file is in backend/app/main.py)
