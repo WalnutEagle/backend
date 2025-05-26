@@ -13,8 +13,8 @@ import uvicorn # For local running if needed
 
 # --- Pydantic Models ---
 class Waypoint(BaseModel):
-    lat: float
-    lon: float
+    X: float
+    Y: float
 
 class SensorData(BaseModel):
     gps_lat: float
