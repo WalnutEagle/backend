@@ -36,6 +36,7 @@ class CarData(BaseModel):
     vehicle_controls: VehicleControls
     image1_base64: Optional[str] = None # For main camera image
     image2_base64: Optional[str] = None # For second/aux camera image
+    energy_used_wh: Optional[float] = None
     timestamp_car_sent_utc: str = Field(default_factory=lambda: datetime.datetime.utcnow().isoformat() + "Z")
     timestamp_server_received_utc: Optional[str] = None
 # --- End Pydantic Models ---
