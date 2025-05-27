@@ -178,7 +178,6 @@ async def websocket_car_data_endpoint(websocket: WebSocket):
 
 @app.websocket("/api/ui_updates")
 async def websocket_ui_endpoint(websocket: WebSocket):
-    await get_latest_car_data()
     await ui_connection_manager.connect(websocket)
     try:
         # Send the current latest data immediately upon connection if available
