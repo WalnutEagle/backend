@@ -130,7 +130,7 @@ async def websocket_car_data_endpoint(websocket: WebSocket):
                         car_sent_time_obj = car_sent_time_obj.replace(tzinfo=datetime.timezone.utc)
                     
                     latency_delta = server_receive_time_obj - car_sent_time_obj
-                    transit_time_ms = round(latency_delta.total_seconds() * 1000.0, 2)
+                    transit_time_ms = round(abs(latency_delta.total_seconds() * 1000.0), 2)
                     car_data_received.data_transit_time_to_server_ms = transit_time_ms
                     
                     if transit_time_ms < -10: # Allow small negative tolerance
