@@ -1,4 +1,6 @@
 fastapi
 uvicorn[standard]
 pydantic
-python-multipart # For form data, good to have 123
+python-multipart # For form data, good to have
+python-dateutil
+
